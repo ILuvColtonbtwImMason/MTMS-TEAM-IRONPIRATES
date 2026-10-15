@@ -1,0 +1,206 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+
+/**
+ * Single-file set of encoder-based helpers + four autonomous OpModes:
+ * - RedAllianceHiveUp
+ * - RedAllianceHiveDown
+ * - BlueAllianceHiveUp
+ * - BlueAllianceHiveDown
+ *
+ * Edit motor names and tuning constants before using.
+ */
+public class AllAutonomous {
+
+    // ---------------------------------------------------------------------
+    // Base helper class (not annotated) - shared drive/turn/shoot helpers
+    // ---------------------------------------------------------------------
+    public static abstract class BaseAuto extends LinearOpMode {
+        protected DcMotor leftFront, leftRear, rightFront, rightRear;
+        protected DcMotor shooter; // change to Servo if needed
+
+        protected ElapsedTime runtime = new ElapsedTime();
+
+        // ====== TUNE THESE ======
+        public static final double WHEEL_DIAMETER_INCHES = 4.0;   // your wheel diameter
+        public static final double TICKS_PER_REV = 537.6;        // encoder ticks per motor rev
+        public static final double GEAR_RATIO = 1.0;             // motor->wheel ratio
+        public static final double TRACK_WIDTH_INCHES = 12.0;    // distance between left & right wheels
+        // ========================
+
+        protected void initHardware() {
+            leftFront  = hardwareMap.get(DcMotor.class, "leftFront");
+            leftRear   = hardwareMap.get(DcMotor.class, "leftRear");
+            rightFront = hardwareMap.get(DcMotor.class, "rightFront");
+            rightRear  = hardwareMap.get(DcMotor.class, "rightRear");
+            shooter    = hardwareMap.get(DcMotor.class, "shooter"); // or a Servo; adapt shoot() if so
+
+            // Reverse right side if motors are mounted opposite
+            rightFront.setDirection(DcMotor.Direction.REVERSE);
+            rightRear.setDirection(DcMotor.Direction.REVERSE);
+
+            DcMotor[] motors = { leftFront, leftRear, rightFront, rightRear };
+            for (DcMotor m : motors) {
+                m.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+                m.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            }
+        }
+
+        protected int inchesToTicks(double inches) {
+            double wheelCircumference = Math.PI * WHEEL_DIAMETER_INCHES;
+            double rotations = (inches / wheelCircumference) * GEAR_RATIO;
+            return (int)Math.round(rotations * TICKS_PER_REV);
+        }
+
+        protected void driveDistance(double speed, double inches) {
+            int ticks = inchesToTicks(inches);
+            driveToPosition(speed, ticks, ticks, ticks, ticks);
+        }
+
+        protected void driveToPosition(double speed, int lfTicks, int lrTicks, int rfTicks, int rrTicks) {
+            // set targets relative to current encoder positions
+            leftFront.setTargetPosition(leftFront.getCurrentPosition() + lfTicks);
+            leftRear.setTargetPosition(leftRear.getCurrentPosition() + lrTicks);
+            rightFront.setTargetPosition(rightFront.getCurrentPosition() + rfTicks);
+            rightRear.setTargetPosition(rightRear.getCurrentPosition() + rrTicks);
+
+            DcMotor[] motors = { leftFront, leftRear, rightFront, rightRear };
+            for (DcMotor m : motors) {
+                m.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                m.setPower(Math.abs(speed)); // RUN_TO_POSITION uses sign of target vs current to determine direction
+            }
+
+            // wait until all motors reach position or opmode stops
+            while (opModeIsActive() &&
+                   (leftFront.isBusy() || leftRear.isBusy() || rightFront.isBusy() || rightRear.isBusy())) {
+                telemetry.addData("LF target", leftFront.getTargetPosition());
+                telemetry.addData("LF cur", leftFront.getCurrentPosition());
+                telemetry.update();
+                sleep(10);
+            }
+
+            // stop & return to using encoder mode
+            for (DcMotor m : motors) {
+                m.setPower(0);
+                m.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            }
+        }
+
+        protected void turnDegrees(double speed, double degrees) {
+            // Positive degrees -> left forward, right backward (in-place)
+            double turnCircumference = Math.PI * TRACK_WIDTH_INCHES;
+            double distancePerWheel = (turnCircumference * (degrees / 360.0));
+            int ticks = inchesToTicks(distancePerWheel);
+            driveToPosition(speed, ticks, ticks, -ticks, -ticks);
+        }
+
+        protected void shoot(int milliseconds, double power) {
+            if (shooter == null) return;
+            shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            shooter.setPower(power);
+            sleep(milliseconds);
+            shooter.setPower(0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Red Alliance - Hive Up
+    // Steps:
+    // 1) forward ~6 in
+    // 2) turn 180 deg (back faces hive)
+    // 3) shoot preloaded pollen
+    // 4) forward ~6 in to park
+    // ---------------------------------------------------------------------
+    @Autonomous(name = "Red - Hive Up", group = "Autonomous")
+    public static class RedAllianceHiveUp extends BaseAuto {
+        @Override
+        public void runOpMode() throws InterruptedException {
+            initHardware();
+            telemetry.addData("Status", "Initialized - Red Hive Up");
+            telemetry.update();
+            waitForStart();
+
+            driveDistance(0.3, 6.0);
+            sleep(200);
+
+            turnDegrees(0.3, 180.0);
+            sleep(200);
+
+            // Shoot: adjust time/power for your shooter mechanism
+            shoot(1500, 0.8);
+
+            driveDistance(0.3, 6.0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Red Alliance - Hive Down
+    // Steps:
+    // 1) forward ~6 in
+    // 2) backward ~6 in to park
+    // ---------------------------------------------------------------------
+    @Autonomous(name = "Red - Hive Down", group = "Autonomous")
+    public static class RedAllianceHiveDown extends BaseAuto {
+        @Override
+        public void runOpMode() throws InterruptedException {
+            initHardware();
+            telemetry.addData("Status", "Initialized - Red Hive Down");
+            telemetry.update();
+            waitForStart();
+
+            driveDistance(0.3, 6.0);
+            sleep(200);
+
+            // drive backward ~6 inches
+            driveDistance(0.3, -6.0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Blue Alliance - Hive Up
+    // (Same sequence as Red Hive Up unless you need field-specific offsets)
+    // ---------------------------------------------------------------------
+    @Autonomous(name = "Blue - Hive Up", group = "Autonomous")
+    public static class BlueAllianceHiveUp extends BaseAuto {
+        @Override
+        public void runOpMode() throws InterruptedException {
+            initHardware();
+            telemetry.addData("Status", "Initialized - Blue Hive Up");
+            telemetry.update();
+            waitForStart();
+
+            driveDistance(0.3, 6.0);
+            sleep(200);
+
+            turnDegrees(0.3, 180.0);
+            sleep(200);
+
+            shoot(1500, 0.8);
+
+            driveDistance(0.3, 6.0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Blue Alliance - Hive Down
+    // ---------------------------------------------------------------------
+    @Autonomous(name = "Blue - Hive Down", group = "Autonomous")
+    public static class BlueAllianceHiveDown extends BaseAuto {
+        @Override
+        public void runOpMode() throws InterruptedException {
+            initHardware();
+            telemetry.addData("Status", "Initialized - Blue Hive Down");
+            telemetry.update();
+            waitForStart();
+
+            driveDistance(0.3, 6.0);
+            sleep(200);
+
+            driveDistance(0.3, -6.0);
+        }
+    }
+}
