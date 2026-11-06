@@ -1,3 +1,319 @@
 *auto op is a 30 second period and in that period the robot goes autonomus and goes on its own with code
 
-package org.firstinspires.ftc.teamcode 
+package org.firstinspires.ftc.teamcode;
+
+import static com.qualcomm.robotcore.hardware.DcMotor.ZeroPowerBehavior.BRAKE;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.PIDFCoefficients;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/*
+ * BioBuzz autonomous for the goBILDA StarterBot (2026-2027 season).
+ * No sensors or camera: driving and turning use drive-motor encoders only.
+ *
+ * Routine selection (during INIT, gamepad 1):
+ *   dpad_right / dpad_left -> cycle through routines
+ *
+ * Routines:
+ *   RED_HIVE_UP    : forward 3 in, turn right 90
+ *   RED_HIVE_DOWN  : forward 6 in, backward 6 in (park)
+ *   BLUE_HIVE_UP   : forward 6 in, turn 180, shoot, forward 6 in (park)
+ *   BLUE_HIVE_DOWN : forward 6 in, backward 6 in (park)
+ */
+@Autonomous(name = "BioBuzz Auto", group = "BioBuzz")
+public class BioBuzzAuto extends OpMode {
+
+    // ---------- Launcher ----------
+    public final int LAUNCHER_TARGET_VELOCITY = 1250;
+    public final int LAUNCHER_MIN_VELOCITY = 1200;
+    final double SHOOT_SECONDS = 4.0;     // Time spent shooting. Tune on the field.
+
+    // ---------- Drivetrain ----------
+    final double DRIVE_SPEED = 0.5;
+    final double ROTATE_SPEED = 0.2;
+    final double WHEEL_DIAMETER_MM = 96;
+    final double ENCODER_TICKS_PER_REV = 537.7;
+    final double TICKS_PER_MM = (ENCODER_TICKS_PER_REV / (WHEEL_DIAMETER_MM * Math.PI));
+    final double TRACK_WIDTH_MM = 402;    // Measure your robot. Affects 90 and 180 degree turns.
+    final double HOLD_SECONDS = 0.5;      // Time the robot must sit at target before moving on.
+
+    // ---------- Safety ----------
+    final double AUTO_TIME_LIMIT = 30.0;  // Hard stop for the whole routine.
+
+    // ---------- Routine selection ----------
+    private enum Routine { RED_HIVE_UP, RED_HIVE_DOWN, BLUE_HIVE_UP, BLUE_HIVE_DOWN }
+    private int selectedIndex = 0;
+    private boolean lastDpadLeft = false;
+    private boolean lastDpadRight = false;
+
+    // ---------- Steps ----------
+    private enum Step {
+        FORWARD_3_IN,
+        FORWARD_6_IN,
+        BACKWARD_6_IN,
+        TURN_RIGHT_90,
+        TURN_180,
+        SHOOT,
+        DONE
+    }
+    private final List<Step> steps = new ArrayList<>();
+    private int stepIndex = 0;
+
+    // ---------- Timers ----------
+    private ElapsedTime driveTimer = new ElapsedTime();   // Used by drive() and rotate()
+    private ElapsedTime stepTimer = new ElapsedTime();    // Used by SHOOT
+    private ElapsedTime autoTimer = new ElapsedTime();    // Whole routine
+
+    // ---------- Hardware ----------
+    private DcMotor leftDrive = null;
+    private DcMotor rightDrive = null;
+    private DcMotorEx launcher = null;
+    private DcMotor intake = null;
+    private CRServo leftIntakeServo = null;
+    private CRServo rightIntakeServo = null;
+    private CRServo windmillServo = null;
+
+    private double intakePower = 0;
+
+    @Override
+    public void init() {
+        leftDrive = hardwareMap.get(DcMotor.class, "left_drive");
+        rightDrive = hardwareMap.get(DcMotor.class, "right_drive");
+        intake = hardwareMap.get(DcMotor.class, "intake");
+        launcher = hardwareMap.get(DcMotorEx.class, "launcher");
+        windmillServo = hardwareMap.get(CRServo.class, "windmill");
+        leftIntakeServo = hardwareMap.get(CRServo.class, "left_intake_servo");
+        rightIntakeServo = hardwareMap.get(CRServo.class, "right_intake_servo");
+
+        leftDrive.setDirection(DcMotor.Direction.FORWARD);
+        rightDrive.setDirection(DcMotor.Direction.REVERSE);
+
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+
+        leftDrive.setZeroPowerBehavior(BRAKE);
+        rightDrive.setZeroPowerBehavior(BRAKE);
+        intake.setZeroPowerBehavior(BRAKE);
+
+        launcher.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        launcher.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, new PIDFCoefficients(40, 0, 0, 12.5));
+
+        leftIntakeServo.setPower(0);
+        rightIntakeServo.setPower(0);
+        windmillServo.setPower(0);
+
+        rightIntakeServo.setDirection(DcMotorSimple.Direction.REVERSE);
+        windmillServo.setDirection(DcMotorSimple.Direction.REVERSE);
+
+        telemetry.addData("Status", "Initialized");
+        telemetry.addData("Routine", Routine.values()[selectedIndex]);
+        telemetry.addLine("Use dpad left/right to choose");
+    }
+
+    @Override
+    public void init_loop() {
+        // Edge-detect the dpad so one press moves one routine.
+        if (gamepad1.dpad_right && !lastDpadRight) {
+            selectedIndex = (selectedIndex + 1) % Routine.values().length;
+        }
+        if (gamepad1.dpad_left && !lastDpadLeft) {
+            selectedIndex = (selectedIndex + Routine.values().length - 1) % Routine.values().length;
+        }
+        lastDpadRight = gamepad1.dpad_right;
+        lastDpadLeft = gamepad1.dpad_left;
+
+        telemetry.addData("Routine (selected)", Routine.values()[selectedIndex]);
+        telemetry.addLine("Use dpad left/right to choose");
+        telemetry.update();
+    }
+
+    @Override
+    public void start() {
+        steps.clear();
+        steps.addAll(buildSteps(Routine.values()[selectedIndex]));
+        stepIndex = 0;
+
+        autoTimer.reset();
+        driveTimer.reset();
+        stepTimer.reset();
+
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    }
+
+    @Override
+    public void loop() {
+        intakePower = 0;
+
+        // Safety timeout: jump to DONE if the routine runs too long.
+        if (autoTimer.seconds() > AUTO_TIME_LIMIT) {
+            stepIndex = steps.size() - 1;
+        }
+
+        Step current = steps.get(stepIndex);
+
+        switch (current) {
+            case FORWARD_3_IN:
+                if (drive(DRIVE_SPEED, 3, DistanceUnit.INCH, HOLD_SECONDS)) advance();
+                break;
+
+            case FORWARD_6_IN:
+                if (drive(DRIVE_SPEED, 6, DistanceUnit.INCH, HOLD_SECONDS)) advance();
+                break;
+
+            case BACKWARD_6_IN:
+                if (drive(DRIVE_SPEED, -6, DistanceUnit.INCH, HOLD_SECONDS)) advance();
+                break;
+
+            case TURN_RIGHT_90:
+                // Positive angle turns left in this drivetrain setup, so right is negative.
+                if (rotate(ROTATE_SPEED, -90, AngleUnit.DEGREES, HOLD_SECONDS)) advance();
+                break;
+
+            case TURN_180:
+                if (rotate(ROTATE_SPEED, 180, AngleUnit.DEGREES, HOLD_SECONDS)) advance();
+                break;
+
+            case SHOOT:
+                launch(true);
+                if (stepTimer.seconds() > SHOOT_SECONDS) {
+                    launch(false);
+                    advance();
+                }
+                break;
+
+            case DONE:
+                launch(false);
+                leftDrive.setPower(0);
+                rightDrive.setPower(0);
+                break;
+        }
+
+        intake.setPower(intakePower);
+
+        telemetry.addData("Routine", Routine.values()[selectedIndex]);
+        telemetry.addData("Step", current);
+        telemetry.addData("Time", "%.1f s", autoTimer.seconds());
+        telemetry.addData("Positions", "left (%d), right (%d)",
+                leftDrive.getCurrentPosition(), rightDrive.getCurrentPosition());
+        telemetry.update();
+    }
+
+    @Override
+    public void stop() {
+        launch(false);
+        leftDrive.setPower(0);
+        rightDrive.setPower(0);
+    }
+
+    // ---------- Routine definitions ----------
+    private List<Step> buildSteps(Routine routine) {
+        List<Step> list = new ArrayList<>();
+        switch (routine) {
+            case RED_HIVE_UP:
+                list.add(Step.FORWARD_3_IN);
+                list.add(Step.TURN_RIGHT_90);
+                break;
+            case RED_HIVE_DOWN:
+            case BLUE_HIVE_DOWN:
+                list.add(Step.FORWARD_6_IN);
+                list.add(Step.BACKWARD_6_IN);
+                break;
+            case BLUE_HIVE_UP:
+                list.add(Step.FORWARD_6_IN);
+                list.add(Step.TURN_180);
+                list.add(Step.SHOOT);
+                list.add(Step.FORWARD_6_IN);
+                break;
+        }
+        list.add(Step.DONE);
+        return list;
+    }
+
+    /*
+     * Moves to the next step. The starter drive() uses ABSOLUTE encoder targets, so the
+     * encoders are reset here so every step's distance is relative to where the robot is now.
+     */
+    private void advance() {
+        stepIndex++;
+        driveTimer.reset();
+        stepTimer.reset();
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    }
+
+    // ---------- Launcher (from StarterBot) ----------
+    void launch(boolean input) {
+        if (input) {
+            launcher.setVelocity(LAUNCHER_TARGET_VELOCITY);
+        } else {
+            launcher.setVelocity(0);
+        }
+
+        if (input && launcher.getVelocity() > LAUNCHER_MIN_VELOCITY) {
+            windmillServo.setPower(1);
+            intakePower += 0.5;
+        } else {
+            windmillServo.setPower(0);
+        }
+    }
+
+    // ---------- Drive (from StarterBot) ----------
+    boolean drive(double speed, double distance, DistanceUnit distanceUnit, double holdSeconds) {
+        final double TOLERANCE_MM = 10;
+
+        double targetPosition = distanceUnit.toMm(distance) * TICKS_PER_MM;
+
+        leftDrive.setTargetPosition((int) targetPosition);
+        rightDrive.setTargetPosition((int) targetPosition);
+
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        leftDrive.setPower(speed);
+        rightDrive.setPower(speed);
+
+        if (Math.abs(targetPosition - leftDrive.getCurrentPosition()) > (TOLERANCE_MM * TICKS_PER_MM)) {
+            driveTimer.reset();
+        }
+
+        return driveTimer.seconds() > holdSeconds;
+    }
+
+    // ---------- Rotate (from StarterBot) ----------
+    boolean rotate(double speed, double angle, AngleUnit angleUnit, double holdSeconds) {
+        final double TOLERANCE_MM = 10;
+
+        double targetMm = angleUnit.toRadians(angle) * (TRACK_WIDTH_MM / 2);
+
+        double leftTargetPosition = -(targetMm * TICKS_PER_MM);
+        double rightTargetPosition = targetMm * TICKS_PER_MM;
+
+        leftDrive.setTargetPosition((int) leftTargetPosition);
+        rightDrive.setTargetPosition((int) rightTargetPosition);
+
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        leftDrive.setPower(speed);
+        rightDrive.setPower(speed);
+
+        if (Math.abs(leftTargetPosition - leftDrive.getCurrentPosition()) > (TOLERANCE_MM * TICKS_PER_MM)) {
+            driveTimer.reset();
+        }
+
+        return driveTimer.seconds() > holdSeconds;
+    }
+}
