@@ -38,7 +38,7 @@ public class BioBuzzAuto extends OpMode {
     // ---------- Launcher ----------
     public final int LAUNCHER_TARGET_VELOCITY = 1250;
     public final int LAUNCHER_MIN_VELOCITY = 1200;
-    final double SHOOT_SECONDS = 4.0;     // Time spent shooting. Tune on the field.
+    final double SHOOT_SECONDS = 10.0;    // Same as the StarterBot auto (all four projectiles). Tune on the field.
 
     // ---------- Drivetrain ----------
     final double DRIVE_SPEED = 0.5;
