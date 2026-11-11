@@ -1,5 +1,3 @@
-*auto op is a 30 second period and in that period the robot goes autonomus and goes on its own with code
-
 package org.firstinspires.ftc.teamcode;
 
 import static com.qualcomm.robotcore.hardware.DcMotor.ZeroPowerBehavior.BRAKE;
@@ -20,8 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /*
- * BioBuzz autonomous for the goBILDA StarterBot (2026-2027 season).
+ * BioBuzz autonomous for Orion (goBILDA StarterBot base, four drive motors).
  * No sensors or camera: driving and turning use drive-motor encoders only.
+ *
+ * Hardware names (must match the Orion robot configuration exactly):
+ *   left_front_drive, right_front_drive, left_back_drive, right_back_drive,
+ *   intake, launcher, windmillServo, left_intake_servo, right_intake_servo
  *
  * Routine selection (during INIT, gamepad 1):
  *   dpad_right / dpad_left -> cycle through routines
@@ -46,7 +48,7 @@ public class BioBuzzAuto extends OpMode {
     final double WHEEL_DIAMETER_MM = 96;
     final double ENCODER_TICKS_PER_REV = 537.7;
     final double TICKS_PER_MM = (ENCODER_TICKS_PER_REV / (WHEEL_DIAMETER_MM * Math.PI));
-    final double TRACK_WIDTH_MM = 402;    // Measure your robot. Affects 90 and 180 degree turns.
+    final double TRACK_WIDTH_MM = 402;    // Measure Orion. Affects 90 and 180 degree turns.
     final double HOLD_SECONDS = 0.5;      // Time the robot must sit at target before moving on.
 
     // ---------- Safety ----------
@@ -77,8 +79,11 @@ public class BioBuzzAuto extends OpMode {
     private ElapsedTime autoTimer = new ElapsedTime();    // Whole routine
 
     // ---------- Hardware ----------
-    private DcMotor leftDrive = null;
-    private DcMotor rightDrive = null;
+    private DcMotor leftFrontDrive = null;
+    private DcMotor rightFrontDrive = null;
+    private DcMotor leftBackDrive = null;
+    private DcMotor rightBackDrive = null;
+    private DcMotor[] driveMotors = null;
     private DcMotorEx launcher = null;
     private DcMotor intake = null;
     private CRServo leftIntakeServo = null;
@@ -89,22 +94,30 @@ public class BioBuzzAuto extends OpMode {
 
     @Override
     public void init() {
-        leftDrive = hardwareMap.get(DcMotor.class, "left_drive");
-        rightDrive = hardwareMap.get(DcMotor.class, "right_drive");
+        leftFrontDrive = hardwareMap.get(DcMotor.class, "left_front_drive");
+        rightFrontDrive = hardwareMap.get(DcMotor.class, "right_front_drive");
+        leftBackDrive = hardwareMap.get(DcMotor.class, "left_back_drive");
+        rightBackDrive = hardwareMap.get(DcMotor.class, "right_back_drive");
         intake = hardwareMap.get(DcMotor.class, "intake");
         launcher = hardwareMap.get(DcMotorEx.class, "launcher");
-        windmillServo = hardwareMap.get(CRServo.class, "windmill");
+        windmillServo = hardwareMap.get(CRServo.class, "windmillServo");
         leftIntakeServo = hardwareMap.get(CRServo.class, "left_intake_servo");
         rightIntakeServo = hardwareMap.get(CRServo.class, "right_intake_servo");
 
-        leftDrive.setDirection(DcMotor.Direction.FORWARD);
-        rightDrive.setDirection(DcMotor.Direction.REVERSE);
+        driveMotors = new DcMotor[] { leftFrontDrive, rightFrontDrive, leftBackDrive, rightBackDrive };
 
-        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        // Left side forward, right side reversed (same as the StarterBot). If Orion drives
+        // backward or spins on the first test, flip these on the wrong side(s).
+        leftFrontDrive.setDirection(DcMotor.Direction.FORWARD);
+        leftBackDrive.setDirection(DcMotor.Direction.FORWARD);
+        rightFrontDrive.setDirection(DcMotor.Direction.REVERSE);
+        rightBackDrive.setDirection(DcMotor.Direction.REVERSE);
 
-        leftDrive.setZeroPowerBehavior(BRAKE);
-        rightDrive.setZeroPowerBehavior(BRAKE);
+        setDriveMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+
+        for (DcMotor m : driveMotors) {
+            m.setZeroPowerBehavior(BRAKE);
+        }
         intake.setZeroPowerBehavior(BRAKE);
 
         launcher.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -149,8 +162,7 @@ public class BioBuzzAuto extends OpMode {
         driveTimer.reset();
         stepTimer.reset();
 
-        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        setDriveMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
     }
 
     @Override
@@ -196,8 +208,7 @@ public class BioBuzzAuto extends OpMode {
 
             case DONE:
                 launch(false);
-                leftDrive.setPower(0);
-                rightDrive.setPower(0);
+                setDrivePower(0);
                 break;
         }
 
@@ -206,16 +217,18 @@ public class BioBuzzAuto extends OpMode {
         telemetry.addData("Routine", Routine.values()[selectedIndex]);
         telemetry.addData("Step", current);
         telemetry.addData("Time", "%.1f s", autoTimer.seconds());
-        telemetry.addData("Positions", "left (%d), right (%d)",
-                leftDrive.getCurrentPosition(), rightDrive.getCurrentPosition());
+        telemetry.addData("Left positions", "front (%d), back (%d)",
+                leftFrontDrive.getCurrentPosition(), leftBackDrive.getCurrentPosition());
+        telemetry.addData("Right positions", "front (%d), back (%d)",
+                rightFrontDrive.getCurrentPosition(), rightBackDrive.getCurrentPosition());
         telemetry.update();
     }
 
     @Override
     public void stop() {
         launch(false);
-        leftDrive.setPower(0);
-        rightDrive.setPower(0);
+        setDrivePower(0);
+        intake.setPower(0);
     }
 
     // ---------- Routine definitions ----------
@@ -243,15 +256,48 @@ public class BioBuzzAuto extends OpMode {
     }
 
     /*
-     * Moves to the next step. The starter drive() uses ABSOLUTE encoder targets, so the
+     * Moves to the next step. drive() and rotate() use ABSOLUTE encoder targets, so the
      * encoders are reset here so every step's distance is relative to where the robot is now.
      */
     private void advance() {
         stepIndex++;
         driveTimer.reset();
         stepTimer.reset();
-        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        setDriveMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    }
+
+    // ---------- Drive helpers (all four motors) ----------
+    private void setDriveMode(DcMotor.RunMode mode) {
+        for (DcMotor m : driveMotors) {
+            m.setMode(mode);
+        }
+    }
+
+    private void setDrivePower(double power) {
+        for (DcMotor m : driveMotors) {
+            m.setPower(power);
+        }
+    }
+
+    /*
+     * Sends the left pair and right pair to their targets and returns the WORST error (in ticks)
+     * across all four motors, so a step only finishes when every wheel has arrived.
+     */
+    private double runToPositions(double leftTicks, double rightTicks, double speed) {
+        leftFrontDrive.setTargetPosition((int) leftTicks);
+        leftBackDrive.setTargetPosition((int) leftTicks);
+        rightFrontDrive.setTargetPosition((int) rightTicks);
+        rightBackDrive.setTargetPosition((int) rightTicks);
+
+        setDriveMode(DcMotor.RunMode.RUN_TO_POSITION);
+        setDrivePower(Math.abs(speed));
+
+        double worst = 0;
+        worst = Math.max(worst, Math.abs(leftTicks - leftFrontDrive.getCurrentPosition()));
+        worst = Math.max(worst, Math.abs(leftTicks - leftBackDrive.getCurrentPosition()));
+        worst = Math.max(worst, Math.abs(rightTicks - rightFrontDrive.getCurrentPosition()));
+        worst = Math.max(worst, Math.abs(rightTicks - rightBackDrive.getCurrentPosition()));
+        return worst;
     }
 
     // ---------- Launcher (from StarterBot) ----------
@@ -270,47 +316,31 @@ public class BioBuzzAuto extends OpMode {
         }
     }
 
-    // ---------- Drive (from StarterBot) ----------
+    // ---------- Drive ----------
     boolean drive(double speed, double distance, DistanceUnit distanceUnit, double holdSeconds) {
         final double TOLERANCE_MM = 10;
 
-        double targetPosition = distanceUnit.toMm(distance) * TICKS_PER_MM;
+        double targetTicks = distanceUnit.toMm(distance) * TICKS_PER_MM;
+        double worstError = runToPositions(targetTicks, targetTicks, speed);
 
-        leftDrive.setTargetPosition((int) targetPosition);
-        rightDrive.setTargetPosition((int) targetPosition);
-
-        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-
-        leftDrive.setPower(speed);
-        rightDrive.setPower(speed);
-
-        if (Math.abs(targetPosition - leftDrive.getCurrentPosition()) > (TOLERANCE_MM * TICKS_PER_MM)) {
+        if (worstError > (TOLERANCE_MM * TICKS_PER_MM)) {
             driveTimer.reset();
         }
 
         return driveTimer.seconds() > holdSeconds;
     }
 
-    // ---------- Rotate (from StarterBot) ----------
+    // ---------- Rotate ----------
     boolean rotate(double speed, double angle, AngleUnit angleUnit, double holdSeconds) {
         final double TOLERANCE_MM = 10;
 
         double targetMm = angleUnit.toRadians(angle) * (TRACK_WIDTH_MM / 2);
 
-        double leftTargetPosition = -(targetMm * TICKS_PER_MM);
-        double rightTargetPosition = targetMm * TICKS_PER_MM;
+        double leftTargetTicks = -(targetMm * TICKS_PER_MM);
+        double rightTargetTicks = targetMm * TICKS_PER_MM;
+        double worstError = runToPositions(leftTargetTicks, rightTargetTicks, speed);
 
-        leftDrive.setTargetPosition((int) leftTargetPosition);
-        rightDrive.setTargetPosition((int) rightTargetPosition);
-
-        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-
-        leftDrive.setPower(speed);
-        rightDrive.setPower(speed);
-
-        if (Math.abs(leftTargetPosition - leftDrive.getCurrentPosition()) > (TOLERANCE_MM * TICKS_PER_MM)) {
+        if (worstError > (TOLERANCE_MM * TICKS_PER_MM)) {
             driveTimer.reset();
         }
 
