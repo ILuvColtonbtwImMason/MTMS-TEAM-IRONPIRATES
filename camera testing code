@@ -1,1 +1,55 @@
+package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import java.util.List;
+
+@TeleOp(name = "AprilTag Camera Test", group = "Concept")
+public class AprilTagTest extends LinearOpMode {
+    
+    private AprilTagProcessor aprilTag;
+    private VisionPortal visionPortal;
+
+    @Override
+    public void runOpMode() {
+        
+        // 1. Initialize the AprilTag Processor
+        aprilTag = new AprilTagProcessor.Builder().build();
+
+        // 2. Build the VisionPortal and attach the webcam
+        visionPortal = new VisionPortal.Builder()
+                .setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"))
+                .addProcessor(aprilTag)
+                .build();
+
+        telemetry.addLine("Camera Initialized. Press Play.");
+        telemetry.update();
+
+        waitForStart();
+
+        // 3. Main Loop: Run while the OpMode is active
+        while (opModeIsActive()) {
+            
+            // Grab the latest data from the camera
+            List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+            telemetry.addData("Tags Detected", currentDetections.size());
+
+            // 4. Loop through every tag seen and output its data
+            for (AprilTagDetection detection : currentDetections) {
+                if (detection.metadata != null) {
+                    telemetry.addLine(String.format("\n==== Tag ID %d ====", detection.id));
+                    telemetry.addLine(String.format("Distance (Y): %.2f inches", detection.ftcPose.y));
+                    telemetry.addLine(String.format("Left/Right (X): %.2f inches", detection.ftcPose.x));
+                    telemetry.addLine(String.format("Heading (Yaw): %.2f degrees", detection.ftcPose.yaw));
+                }
+            }
+            
+            telemetry.update();
+            sleep(20); // Small pause to save CPU resources
+        }
+    }
+}
