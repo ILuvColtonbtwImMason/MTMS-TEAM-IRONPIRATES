@@ -1,1 +1,71 @@
+package org.firstinspires.ftc.teamcode;
+
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import org.firstinspires.ftc.robotcore.external.JavaUtil;
+
+
+@Autonomous(name = "mecanumdriveAutoJustParkFromCornerWalls (Blocks to Java)")
+public class mecanumdriveAutoJustParkFromCornerWalls extends LinearOpMode {
+
+
+  private DcMotor leftBackDrive;
+  private DcMotor leftFrontDrive;
+  private DcMotor rightBackDrive;
+  private DcMotor rightFrontDrive;
+
+
+  /**
+   * This function allows you to program the motors with y 'forward', x 'side to
+   * side, and rx 'turn' in time using seconds. For example the first timedDrive
+   * function makes the robot go forward at 30% motor speed for 1 second.
+   */
+  @Override
+  public void runOpMode() {
+    leftBackDrive = hardwareMap.get(DcMotor.class, "leftBackDrive");
+    leftFrontDrive = hardwareMap.get(DcMotor.class, "leftFrontDrive");
+    rightBackDrive = hardwareMap.get(DcMotor.class, "rightBackDrive");
+    rightFrontDrive = hardwareMap.get(DcMotor.class, "rightFrontDrive");
+
+
+    // Reverse the right side motors.  This may be wrong for your setup.
+    // If your robot moves backwards when commanded to go forwards, reverse the left side instead.
+    // This code assumes you put the robot in the corner closest to loading zone to the right, intake facing out, launcher touching wall.
+    leftBackDrive.setDirection(DcMotor.Direction.REVERSE);
+    leftFrontDrive.setDirection(DcMotor.Direction.REVERSE);
+    leftBackDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    leftFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    rightBackDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    rightFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    waitForStart();
+    if (opModeIsActive()) {
+      timedDrive(0.3, 0, 0, 0.25);
+      timedDrive(0, 0.3, 0, 1);
+    }
+  }
+
+
+  /**
+   * This function sets motor speed, waits one second with the
+   * sleep, and then sets all the motto powers back to zero.
+   */
+  private void timedDrive(double y, double x, int rx, double timeSeconds) {
+    double denominator;
+
+
+    denominator = JavaUtil.maxOfList(JavaUtil.createListWith(JavaUtil.sumOfList(JavaUtil.createListWith(Math.abs(y), Math.abs(x), Math.abs(rx))), 1));
+    // Make sure your ID's match your configuration
+    leftFrontDrive.setPower((y + x + rx) / denominator);
+    leftBackDrive.setPower(((y - x) + rx) / denominator);
+    rightFrontDrive.setPower(((y - x) - rx) / denominator);
+    rightBackDrive.setPower(((y + x) - rx) / denominator);
+    sleep((long) (timeSeconds * 1000));
+    leftFrontDrive.setPower(0);
+    leftBackDrive.setPower(0);
+    rightFrontDrive.setPower(0);
+    rightBackDrive.setPower(0);
+  }
+}
 
